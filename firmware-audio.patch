@@ -1,0 +1,98 @@
+diff --git a/src/modules/bjs_interpreter/audio_js.cpp b/src/modules/bjs_interpreter/audio_js.cpp
+index f670c8da..477a3121 100644
+--- a/src/modules/bjs_interpreter/audio_js.cpp
++++ b/src/modules/bjs_interpreter/audio_js.cpp
+@@ -1,5 +1,69 @@
+ #if !defined(LITE_VERSION) && !defined(DISABLE_INTERPRETER)
+ #include "audio_js.h"
++#include "core/sd_functions.h"
++#include "modules/others/audio.h"
++
++// Non-blocking SD playback for JavaScript UIs. Keep playFile's legacy behavior.
++JSValue native_audioControl(JSContext *ctx, JSValue *this_val, int argc, JSValue *argv) {
++#if defined(HAS_NS4168_SPKR)
++    if (argc < 1 || !JS_IsString(ctx, argv[0])) {
++        return JS_ThrowTypeError(ctx, "audio.control(command, value?)");
++    }
++    JSCStringBuf commandBuf;
++    const char *commandText = JS_ToCString(ctx, argv[0], &commandBuf);
++    if (!commandText) return JS_EXCEPTION;
++    String command(commandText);
++    if (command == "play") {
++        if (argc < 2 || !JS_IsString(ctx, argv[1])) {
++            return JS_ThrowTypeError(ctx, "play requires an absolute SD path");
++        }
++        JSCStringBuf pathBuf;
++        size_t length;
++        const char *text = JS_ToCStringLen(ctx, &length, argv[1], &pathBuf);
++        if (!text) return JS_EXCEPTION;
++        String path(text);
++        String lower(path);
++        lower.toLowerCase();
++        if (length != path.length() || !path.startsWith("/") ||
++            !(lower.endsWith(".wav") || lower.endsWith(".mp3"))) {
++            return JS_ThrowTypeError(ctx, "Expected an absolute WAV or MP3 SD path");
++        }
++        return JS_NewBool(setupSdCard() && playAudioFile(&SD, path, PLAYBACK_ASYNC));
++    }
++    if (command == "pause") return JS_NewBool(pauseAudioPlayback());
++    if (command == "stop") return JS_NewBool(stopAudioPlayback());
++    if (command == "volume") {
++        double volume;
++        if (argc < 2 || !JS_IsNumber(ctx, argv[1]) || JS_ToNumber(ctx, &volume, argv[1])) {
++            return JS_ThrowTypeError(ctx, "volume requires a number from 0 to 100");
++        }
++        if (!(volume >= 0 && volume <= 100)) {
++            return JS_ThrowTypeError(ctx, "volume must be from 0 to 100");
++        }
++        setAudioPlaybackVolume(static_cast<uint8_t>(volume));
++        return JS_UNDEFINED;
++    }
++    if (command == "info") {
++        AudioPlaybackInfo info = getAudioPlaybackInfo();
++        const char *state = "error";
++        switch (info.state) {
++            case PLAYBACK_IDLE: state = "idle"; break;
++            case PLAYBACK_PLAYING: state = "playing"; break;
++            case PLAYBACK_PAUSED: state = "paused"; break;
++            case PLAYBACK_STOPPING: state = "stopping"; break;
++            default: break;
++        }
++        JSValue result = JS_NewObject(ctx);
++        JS_SetPropertyStr(ctx, result, "state", JS_NewString(ctx, state));
++        JS_SetPropertyStr(ctx, result, "position", JS_NewUint32(ctx, info.position));
++        JS_SetPropertyStr(ctx, result, "volume", JS_NewInt32(ctx, info.volume));
++        return result;
++    }
++    return JS_ThrowTypeError(ctx, "Unknown audio control command");
++#else
++    return JS_ThrowTypeError(ctx, "Async audio requires an I2S speaker build");
++#endif
++}
+ 
+ JSValue native_playAudioFile(JSContext *ctx, JSValue *this_val, int argc, JSValue *argv) {
+     if (argc < 1) { return JS_NewBool(false); }
+diff --git a/src/modules/bjs_interpreter/audio_js.h b/src/modules/bjs_interpreter/audio_js.h
+index 728137a9..2852fccb 100644
+--- a/src/modules/bjs_interpreter/audio_js.h
++++ b/src/modules/bjs_interpreter/audio_js.h
+@@ -5,6 +5,7 @@
+ #include "helpers_js.h"
+ 
+ extern "C" {
++JSValue native_audioControl(JSContext *ctx, JSValue *this_val, int argc, JSValue *argv);
+ JSValue native_playAudioFile(JSContext *ctx, JSValue *this_val, int argc, JSValue *argv);
+ JSValue native_tone(JSContext *ctx, JSValue *this_val, int argc, JSValue *argv);
+ }
+diff --git a/src/modules/bjs_interpreter/mqjs_stdlib.c b/src/modules/bjs_interpreter/mqjs_stdlib.c
+index 0754f13a..a5898b64 100644
+--- a/src/modules/bjs_interpreter/mqjs_stdlib.c
++++ b/src/modules/bjs_interpreter/mqjs_stdlib.c
+@@ -343,6 +343,7 @@ static const JSClassDef js_exports_obj =
+     JS_OBJECT_DEF("Exports", js_exports);
+ 
+ const JSPropDef js_audio[] = {
++    JS_CFUNC_DEF("control", 2, native_audioControl),
+     JS_CFUNC_DEF("playFile", 1, native_playAudioFile),
+     JS_CFUNC_DEF("tone", 3, native_tone),
+     JS_PROP_END,
