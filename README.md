@@ -1,5 +1,13 @@
 # Bruce music player — LilyGO T-Embed CC1101
 
+**Human author's note:**   
+This music player for the Bruce firmware was written by GPT-6 Astra (medium), targeting
+the LilyGO T-Embed CC1101. The reference firmware was cloned from the official repo on
+2026-09-14. I've tested the code to make sure everything works (playback, volume control),
+but there may be subtle bugs. Use at your own risk.
+
+---
+
 `music_player.js` provides SD-card WAV/MP3 browsing, play/pause/resume, stop,
 next/previous track, rewind to the beginning, volume adjustment, and playlists.
 It uses Bruce's existing audio decoder and the device's built-in I2S speaker.
